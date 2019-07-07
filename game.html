@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<!-- vim: set sw=3 ts=3: -->
+<html>
+	<head>
+		<title>X rt, Y up, Z bk</title>
+		<style>
+			body { margin: 0; }
+			canvas { width: 100%; height: 100% }
+		</style>
+	</head>
+	<body>
+		<script src="three.js"></script>
+		<script>
+function Timeline(){
+	// data is dataay of elements like this: {time:1.1 ,...},
+	// where each value is real, and 'time' key must exist.
+	// Items are ordered in increasing order of time.
+	var data = [];
+	this.maxTime = -1;
+	var index = 0;
+	var scope = this;
+	this.add = function(arg){
+		if(arg.time<=scope.maxTime){
+			throw `time "${time}" must be bigger than ${scope.maxTime}`;
+		}
+		data.push(arg);
+		scope.maxTime = arg.time;
+	}
+	var indexTo = function(time){
+		// change index to point to array element with time,
+		// or lower element if it falls in between.
+		// Returns true if it's exact match, otherwise false.
+		if(time<0 || time>scope.maxTime){
+			throw `time "${time}" out of bounds [0..${scope.maxTime}]`;
+		}
+		// note that we're re-using index here
+		var direction = Math.sign(time-data[index].time);
+		// if d>0, INcrease index until time of indexed element becomes BIGGER or equal to requested time
+		//   in this case, after this loop requested time is either equal, or LOWER to indexed one
+		// if d<0, DEcrease index until time of indexed element becomes SMALLER or equal to requested time
+		//   in this case, after this loop requested time is either equal, or HIGHER to indexed one
+		// if d==0, this loop is skipped :-)
+		while(direction*time > direction*data[index].time){
+			index += direction;
+		}
+		if(time === data[index].time){
+			// exact match!
+			return true;
+		}
+		if(direction>0){
+			index--;
+		}
+		// now requested time is between indexed time and next one
+		return false;
+	}
+	this.findIn = function(time){
+		// return element of the data, or constructed estimation of state between times.
+		var exact = indexTo(time);
+		if(exact){
+			return JSON.parse(JSON.stringify(data[index]));
+		}
+		// ratio is [0..1] - how close time is to data[index+1].time
+		// time == data[index].time => ratio === 0
+		// time == data[index+1].time => ratio === 1
+		var ratio = (time - data[index].time)/(data[index+1].time - data[index].time);
+		var keys = Object.keys(data[index]);
+		var result = {};
+		for(var i=0; i<keys.length; i++){
+			result[keys[i]] = data[index+1][keys[i]]*ratio + data[index][keys[i]]*(1-ratio);
+		}
+		return result;
+	}
+	this.truncate = function(time){
+		var newEnd = this.findIn(time);
+		data.length = index; //note that after this line, `time` is out of bounds
+		data.push(newEnd);
+		this.maxTime = time;
+	}
+}
+
+const MAX_TIME = 1000;
+const MAX_X = 10;
+const MAX_Y = 10;
+const monsters_count = 5;
+const monster_speed = 1;
+const player_speed = 1;
+const bullet_speed = 3;
+
+function Model(){
+	var maxTime = 0;
+	var curTime = 0;
+	var player = new Timeline();
+	var monsters = new Array(monsters_count);
+	var monster_deaths = new Array(monsters_count);
+	var player_death = MAX_TIME;
+	for(var i=0; i<monsters_count; i++){
+		monsters[i] = new Timeline();
+		monster_deaths[i] = MAX_TIME;
+	}
+	player.add({time:0,x:MAX_X/2,y:MAX_Y,a:0,b:0});
+	monsters[0].add({time:0,x:1/4*MAX_X,y:1/4*MAX_X});
+	monsters[1].add({time:0,x:3/4*MAX_X,y:1/4*MAX_X});
+	monsters[2].add({time:0,x:1/4*MAX_X,y:3/4*MAX_X});
+	monsters[3].add({time:0,x:3/4*MAX_X,y:3/4*MAX_X});
+	monsters[4].add({time:0,x:1/2*MAX_X,y:1/2*MAX_X});
+	// TODO: bullets
+	this.getPlayerState = function(){
+		return player.findIn(curTime);
+	}
+	this.getState = function(){
+		return {
+			time: curTime,
+			player: player.findIn(curTime),
+			monsters: monsters.map(m=>m.findIn(curTime)),
+			monsters_alive: monster_deaths.map(d=>d>curTime),
+			player_alive: player_death<curTime,
+			// TODO: bullets
+		}
+	}
+	var truncate = function(time){
+		maxTime = time;
+		curTime = Math.min(curTime, maxTime);
+		player.truncate(time);
+		for(var i=0; i<monster_deaths.length; i++){
+			if(time<monster_deaths[i]){
+				monster_deaths[i] = MAX_TIME;
+			}
+		}
+		// TODO: bullets
+	}
+	this.step = function(time, newState){
+		if(curTime != maxTime){
+			truncate(curTime);
+		}
+		curTime += time;
+		maxTime = curTime;
+		player.add(newState);
+		// ensure all monsters have `time` in their timelines
+		for(var i=0; i<monsters.length; i++){
+			while(curTime>monsters[i].maxTime){
+				var lastPos = monsters[i].findIn(monsters[i].maxTime);
+				var newPos = {x:Math.random()*MAX_X,
+				              y:Math.random()*MAX_Y};
+				var dist = Math.sqrt(Math.pow(newPos.x-lastPos.x,2)+
+				                     Math.pow(newPos.y-lastPos.y,2));
+				var time_to_newPos = dist/monster_speed;
+				newPos.time = lastPos.time + time_to_newPos;
+				monsters[i].add(newPos);
+			}
+		}
+		// TODO: bullets (create new)
+		// TODO: collisions, deaths
+	}
+	this.rewind = function(time){
+		curTime -= time;
+		curTime = Math.max(curTime, 0);
+	}
+	this.forward = function(time){
+		curTime += time;
+		curTime = Math.min(curTime, maxTime);
+	}
+}
+
+
+function View(){
+	var scene = new THREE.Scene();
+	var renderer = new THREE.WebGLRenderer();
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	document.body.appendChild( renderer.domElement );
+
+	//box
+	var geometry = new THREE.BoxGeometry( MAX_X+1, 2, MAX_Y+1, // length along X, Y(up), Z
+	                                      MAX_X+1, 1, MAX_Y+1);// number of segments along X,Y,Z
+	var material = new THREE.MeshLambertMaterial({color: 'gray'});
+	material.side = THREE.BackSide;
+	var mesh = new THREE.Mesh( geometry, material );
+	scene.add( mesh );
+	mesh.position.x = MAX_X/2;
+	mesh.position.z = MAX_Y/2;
+
+	// player
+	var player_body = new THREE.Object3D();
+	player_body.rotation.order = 'YXZ';
+	scene.add( player_body );
+	var camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
+	player_body.add(camera);
+	camera.position.y = 0.5;
+
+	// lights
+	var light = new THREE.HemisphereLight( 0xffffbb, 0x080820, 1 );
+	scene.add( light );
+	var light = new THREE.PointLight( 0xffffff, 1, MAX_X + MAX_Y );
+	light.position.set( 0, 1, 0 );
+	camera.add( light );
+
+	// monsters
+	var geometry = new THREE.ConeBufferGeometry( 0.3, 2, 8, 1, true );
+	var material = new THREE.MeshLambertMaterial({color: 'white'});
+	var monsters = new Array(monsters_count);
+	for(var i=0; i<monsters_count; i++){
+		monsters[i] = new THREE.Mesh( geometry, material );
+		scene.add( monsters[i] );
+	}
+
+	this.render = function(render_state){
+		// player
+		player_body.position.x = render_state.player.x;
+		player_body.position.z = render_state.player.y;
+		player_body.rotation.y = render_state.player.a; // main rotation (vertical axis)
+		camera.rotation.x = render_state.player.b; // secondary rotation (horizontal axis)
+		// console.log('render', render_state.player);
+		// monsters
+		for(var i=0; i<monsters_count; i++){
+			monsters[i].position.x = render_state.monsters[i].x;
+			monsters[i].position.z = render_state.monsters[i].y;
+			monsters[i].visible = render_state.monsters_alive[i];
+		}
+		//TODO: bullets
+		renderer.render( scene, camera );
+	}
+}
+
+function Controller(model, view){
+	var render_state = model.getState();
+	var R5 = [1, 1.6, 2.5, 4, 6.3];
+	var d10 = R5.map(x=>x/10);
+	var d100 = R5.map(x=>x/100);
+	var speed_multipliers = d100.concat(d10).concat([1]);
+	var speed_multiplier_index = speed_multipliers.length-1;
+	var speed_multiplier = 1;
+
+	// PointerLockControls
+	var scope = this;
+	var PI_2 = Math.PI / 2;
+	var onMouseMove = function ( event ) {
+		if ( scope.enabled === false ) return;
+		var movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+		var movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+		render_state.player.a -= movementX * 0.002;
+		render_state.player.b -= movementY * 0.002;
+		render_state.player.b = Math.max( - PI_2, Math.min( PI_2, render_state.player.b ) );
+		// console.log('did look', render_state.player);
+	};
+	var changeCallback = function(){
+		scope.enabled=(!!document.pointerLockElement);
+	};
+	document.addEventListener('mousemove', onMouseMove, false );
+	document.addEventListener('pointerlockchange', changeCallback, false);
+	document.addEventListener('pointerlockerror', (x)=>console.log(x), false);
+	this.enabled = false;
+	document.body.onclick=()=>document.body.requestPointerLock();
+
+	// keyboard
+	var buttons=[];
+	document.addEventListener( 'keyup', function(e){buttons[e.keyCode]=false;});
+	document.addEventListener( 'keydown', function(e){ buttons[e.keyCode]=true;});
+	var move_player = function(time, angle){
+		angle += render_state.player.a;
+		var dist = time*player_speed;
+		render_state.player.x -= dist*Math.sin(angle);
+		render_state.player.y -= dist*Math.cos(angle);
+		render_state.player.x = Math.max(0, Math.min(render_state.player.x, MAX_X));
+		render_state.player.y = Math.max(0, Math.min(render_state.player.y, MAX_Y));
+	}
+	var controls = function(time){
+		var did_move = false;
+		if(buttons[81]){ //q
+			speed_multiplier_index = Math.max(0, speed_multiplier_index-1);
+			speed_multiplier = speed_multipliers[speed_multiplier_index];
+		}
+		if(buttons[87]){ //w
+			move_player(time, 0);
+			did_move=true;
+		}
+		if(buttons[69]){ //e
+			speed_multiplier_index = Math.min(speed_multiplier_index+1, speed_multipliers.length-1);
+			speed_multiplier = speed_multipliers[speed_multiplier_index];
+		}
+		if(buttons[65]){ //a
+			move_player(time, PI_2);
+			did_move=true;
+		}
+		if(buttons[83]){ //s
+			move_player(time, Math.PI);
+			did_move=true;
+		}
+		if(buttons[68]){ //d
+			move_player(time, -PI_2);
+			did_move=true;
+		}
+		if(buttons[90]){ //z
+			model.rewind(time);
+			render_state = model.getState();
+		}
+		if(buttons[88]){ //x
+			// we actually don't move player anywhere,
+			// but if(did_move) block below will forward time
+			did_move=true;
+		}
+		if(buttons[67]){ //c
+			model.forward(time);
+			render_state = model.getState();
+		}
+		if(buttons[32]){ //space
+		}
+		if(buttons[49]){ //1
+		}
+		if(buttons[50]){ //2
+		}
+		if(did_move){
+			render_state.player.time += time;
+			model.step(time, render_state.player);
+			render_state = model.getState();
+			console.log('did move', render_state.player);
+		}
+	}
+
+	var lastFrameTime = Date.now();
+	var animate = function () {
+		requestAnimationFrame( animate );
+		var now = Date.now();
+		var time = (now-lastFrameTime)/1000*speed_multiplier;
+		lastFrameTime = now;
+		controls(time);
+		view.render(render_state);
+	}
+	animate();
+}
+
+// setup
+var model = new Model();
+var view = new View();
+var controller = new Controller(model, view);
+
+		</script>
+	</body>
+</html>
