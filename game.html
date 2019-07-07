@@ -208,7 +208,6 @@ function View(){
 		player_body.position.z = render_state.player.y;
 		player_body.rotation.y = render_state.player.a; // main rotation (vertical axis)
 		camera.rotation.x = render_state.player.b; // secondary rotation (horizontal axis)
-		// console.log('render', render_state.player);
 		// monsters
 		for(var i=0; i<monsters_count; i++){
 			monsters[i].position.x = render_state.monsters[i].x;
@@ -239,7 +238,6 @@ function Controller(model, view){
 		render_state.player.a -= movementX * 0.002;
 		render_state.player.b -= movementY * 0.002;
 		render_state.player.b = Math.max( - PI_2, Math.min( PI_2, render_state.player.b ) );
-		// console.log('did look', render_state.player);
 	};
 	var changeCallback = function(){
 		scope.enabled=(!!document.pointerLockElement);
@@ -313,7 +311,6 @@ function Controller(model, view){
 			render_state.player.time += time;
 			model.step(time, render_state.player);
 			render_state = model.getState();
-			console.log('did move', render_state.player);
 		}
 	}
 
