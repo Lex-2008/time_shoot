@@ -267,6 +267,7 @@ function Controller(model, view){
 		if(buttons[81]){ //q
 			speed_multiplier_index = Math.max(0, speed_multiplier_index-1);
 			speed_multiplier = speed_multipliers[speed_multiplier_index];
+			buttons[81] = false; //do not repeat
 		}
 		if(buttons[87]){ //w
 			move_player(time, 0);
@@ -275,6 +276,7 @@ function Controller(model, view){
 		if(buttons[69]){ //e
 			speed_multiplier_index = Math.min(speed_multiplier_index+1, speed_multipliers.length-1);
 			speed_multiplier = speed_multipliers[speed_multiplier_index];
+			buttons[69] = false; //do not repeat
 		}
 		if(buttons[65]){ //a
 			move_player(time, PI_2);
